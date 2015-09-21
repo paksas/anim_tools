@@ -7,18 +7,73 @@ from bpy.props import *
  
 class MotionExtractionFilter:
 
+    m_scene = None
     m_armatureObj = None
     m_oldMoverChannel = None
 
+    #
     # Constructor
-    def __init__( self, armatureObj, oldMoverChannel ):
+    #
+    def __init__( self, scene, armatureObj, oldMoverChannel ):
 
+        self.m_scene = scene
         self.m_armatureObj = armatureObj
         self.m_oldMoverChannel = oldMoverChannel
 
+    #
+    # Performs the motion extraction procedure
+    #
     def execute( self ):
-        print( "Extract motion running... ", self.m_armatureObj.name, " ", self.m_oldMoverChannel )
+
+        print( "Extract motion running: ", self.m_oldMoverChannel, " --> ", self.m_armatureObj.name )
+
+        if self.m_armatureObj.animation_data is None or self.m_armatureObj.animation_data.action is None:
+            op.report( {'ERROR'}, self.m_armatureObj.name, " doesn't have any action assigned" )
+            return False
+        
+        animation = self.m_armatureObj.animation_data.action
+        framesCount = int( animation.frame_range[1] )
+                
+        motionTransforms = self.collectMotionTransforms( animation, framesCount )
+
         return True
+
+    #
+    # Collects motion transforms from the old mover channel bone
+    #
+    def collectMotionTransforms( self, animation, framesCount ):
+
+        # store the original frame index to restore the scene to the previous state once we're done
+        originalFrameIdx = self.m_scene.frame_current
+
+        print( "Extracting motion from action: ", animation.name, "; frames [1..", framesCount, "]" )
+
+        # find the motion extraction track idx
+        motionTrackIdx = self.m_armatureObj.pose.bones.find( self.m_oldMoverChannel )
+        print( "Motion track idx = ", motionTrackIdx )
+
+        motionBone = self.m_armatureObj.pose.bones[self.m_oldMoverChannel]
+
+        # sample animation frames
+        motionTransforms = []
+        for frameIdx in range( framesCount ):
+
+            self.m_scene.frame_set( frameIdx )
+
+            motionBoneRefMtx = motionBone.bone.matrix_local
+            motionBoneMtx = motionBone.matrix
+            motionBoneLocMtx = motionBoneRefMtx.inverted() * motionBoneMtx
+            loc, rot, scale = motionBoneLocMtx.decompose()
+
+            motionTransforms.append( (loc, rot, scale) )
+            print( "Frame ", frameIdx, ". loc", loc, "; rot", rot, "; scale", scale )
+
+        # restore the scene to its previous state
+        self.m_scene.frame_set( originalFrameIdx )
+
+        return motionTransforms
+
+
 
 ##################################################
 # Motion extraction operator
@@ -40,7 +95,8 @@ def bonesList( scene, context ):
     armature = context.object
     if armature is not None and armature.type == "ARMATURE":
         for bone in armature.data.bones:
-            items.append( ( bone.name, bone.name, bone.name ) )
+            if bone.parent is None: # limit selection to root bones only
+                items.append( ( bone.name, bone.name, bone.name ) )
 
     return items
 
@@ -54,10 +110,6 @@ class ExtractMotionOp(bpy.types.Operator):
     #
     # Properties
     #
-    #armature = StringProperty(
-    #    name="Armature",
-    #    description="Armature being animated",
-    #    default="")
     armature = EnumProperty(
         name="Armature",
         description="Armature being animated",
@@ -72,7 +124,9 @@ class ExtractMotionOp(bpy.types.Operator):
     # Operator implementation
     #
 
+    #
     # on mouse up:
+    #
     def invoke(self, context, event):
 
         # if an object is selected, and it's an armature, then set it as the default
@@ -83,7 +137,9 @@ class ExtractMotionOp(bpy.types.Operator):
         wm = context.window_manager
         return wm.invoke_props_dialog(self)
 
+    #
     # on Invoke
+    #
     def execute(op, context):
         if len(op.armature) == 0:
             op.report( {'ERROR'}, "Extract Motion: No armature object specified" )
@@ -98,7 +154,7 @@ class ExtractMotionOp(bpy.types.Operator):
             op.report( {'ERROR'}, "Extract Motion: The selected armature doesn't exist" )
             return {"CANCELLED"}
 
-        filter = MotionExtractionFilter( armatureObj, op.old_mover_channel )
+        filter = MotionExtractionFilter( context.scene, armatureObj, op.old_mover_channel )
         if filter.execute() == True:
             return {'FINISHED'}
         else:
