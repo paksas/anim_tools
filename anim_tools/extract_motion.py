@@ -14,7 +14,7 @@ class MotionExtractionFilter:
     m_oldMoverChannel = None
 
     m_movementDirection = ( True, True, False )
-    m_upAxis = ( 0.0, 0.0, 1.0 )
+    m_upAxis = "Z"
     m_includeRotation = False
 
     #
@@ -84,7 +84,17 @@ class MotionExtractionFilter:
                     loc[axisIdx] = 0.0
 
             if self.m_includeRotation == True:
-                pass
+                eulerRot = rot.to_euler('XYZ')
+                if ( self.m_upAxis == "X" ):
+                    eulerRot.y = 0.0
+                    eulerRot.z = 0.0
+                elif ( self.m_upAxis == "Y" ):
+                    eulerRot.x = 0.0
+                    eulerRot.z = 0.0
+                elif ( self.m_upAxis == "Z" ):
+                    eulerRot.x = 0.0
+                    eulerRot.y = 0.0
+                rot = eulerRot.to_quaternion()
             else:
                 rot = mathutils.Quaternion( ( 1.0, 0.0, 0.0, 0.0 ) )
 
@@ -100,13 +110,28 @@ class MotionExtractionFilter:
         # store the original frame index to restore the scene to the previous state once we're done
         originalFrameIdx = self.m_scene.frame_current
 
+        # delete curves we're about to replace
+        print( "Removing curves that are about to be replaced:" )
+
+        curvesToRemove = []
+        for fc in animation.fcurves:
+            if fc.data_path == "location" or fc.data_path == "rotation_euler" or fc.data_path == "rotation_quaternion":
+                curvesToRemove.append( fc )
+        for curve in curvesToRemove:
+            print( "\tRemoving curve: ", curve.data_path )
+            animation.fcurves.remove( curve )
+
         print( "Keyframing the armature object."  )
-
         framesCount = len( motion )
-
         # location
         for axis_i in range(3):
-            curve = animation.fcurves.new(data_path="location", index=axis_i)
+            
+            # if a curve already exists, delete it
+            #curve = animation.fcurves.find( "location" )
+            #if ( curve is not None ):
+            #    animation.fcurves.remove( curve )
+
+            curve = animation.fcurves.new(data_path="location", index=axis_i, action_group='Location' )
             keyframePoints = curve.keyframe_points
             keyframePoints.add( framesCount )
 
@@ -116,6 +141,17 @@ class MotionExtractionFilter:
                 keyframePoints[frameIdx].interpolation = 'LINEAR'
 
         # rotation
+        if self.m_includeRotation:
+            for axis_i in range(4):
+
+                curve = animation.fcurves.new(data_path="rotation_quaternion", index=axis_i, action_group='Rotation')
+                keyframePoints = curve.keyframe_points
+                keyframePoints.add( framesCount )
+
+                for frameIdx in range( framesCount ):
+                    loc, rot, scale = motion[frameIdx]
+                    keyframePoints[frameIdx].co = (frameIdx + 1.0, rot[axis_i])
+                    keyframePoints[frameIdx].interpolation = 'LINEAR'
 
         # restore the scene to its previous state
         self.m_scene.frame_set( originalFrameIdx )
@@ -236,12 +272,9 @@ class ExtractMotionOp(bpy.types.Operator):
         name="Up axis",
         description="World axis considered the up direction for the model",
         items=[
-            ( "X", "X", "" ),
-            ( "Y", "Y", "" ),
-            ( "Z", "Z", "" ),
-            ( "-X", "-X", "" ),
-            ( "-Y", "-Y", "" ),
-            ( "-Z", "-Z", "" ) ],
+            ( "X", "X", "X" ),
+            ( "Y", "Y", "Y" ),
+            ( "Z", "Z", "Z" )],
         default="Z"
         )
 
@@ -281,15 +314,7 @@ class ExtractMotionOp(bpy.types.Operator):
 
         filter = MotionExtractionFilter( context.scene, armatureObj, op.old_mover_channel )
         filter.setMovementDirectionFilter( op.xTranslation, op.yTranslation, op.zTranslation )
-
-        rotations = {
-            "X" : (1.0, 0.0, 0.0),
-            "Y" : (0.0, 1.0, 0.0),
-            "Z" : (0.0, 0.0, 1.0),
-            "-X" : (-1.0, 0.0, 0.0),
-            "-Y" : (0.0, -1.0, 0.0),
-            "-Z" : (0.0, 0.0, -1.0) }
-        filter.setRotationFilter( op.includeRotation, rotations[op.upAxis] )
+        filter.setRotationFilter( op.includeRotation, op.upAxis )
 
         if filter.execute() == True:
             return {'FINISHED'}
