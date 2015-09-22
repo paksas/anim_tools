@@ -2,6 +2,8 @@
 from bpy.props import *
 import mathutils
 import math
+from . import motion_operator
+from . import transform_utils
 
 ##################################################
 # Motion extraction functionality
@@ -65,7 +67,11 @@ class MotionExtractionFilter:
         # Keyframe the object with that motion
         self.keyframeAnimationRoot( animation, motion )
 
-        # Subtract the motion from the roots
+        # Remove the extracted motion from the root bones
+        for bone in self.m_armatureObj.data.bones:
+            if bone.parent is not None:
+                self.removeMotionFromBone( bone, motion, animation )
+
 
         return True
 
@@ -111,15 +117,7 @@ class MotionExtractionFilter:
         originalFrameIdx = self.m_scene.frame_current
 
         # delete curves we're about to replace
-        print( "Removing curves that are about to be replaced:" )
-
-        curvesToRemove = []
-        for fc in animation.fcurves:
-            if fc.data_path == "location" or fc.data_path == "rotation_euler" or fc.data_path == "rotation_quaternion":
-                curvesToRemove.append( fc )
-        for curve in curvesToRemove:
-            print( "\tRemoving curve: ", curve.data_path )
-            animation.fcurves.remove( curve )
+        self.deleteObjectMotionFCurves( animation )
 
         print( "Keyframing the armature object."  )
         framesCount = len( motion )
@@ -190,6 +188,21 @@ class MotionExtractionFilter:
 
         return motionTransforms
 
+    
+    #
+    # Removes the specified motion from the bone
+    #
+    def removeMotionFromBone( self, bone, motion, animation ):
+        
+        boneMotionOp = motion_operator.BoneMotionOp( self.m_armatureObj, bone )
+        prevMotion = boneMotionOp.sampleMotion( animation )
+        newMotion = transform_utils.calcRelativeMotion( motion, prevMotion )
+        boneMotionOp.setMotion( animation, newMotion )
+
+    # -------------------------------------------------------------------------
+    # Utility methods
+    # -------------------------------------------------------------------------
+
     #
     # Prints the motion definition
     #
@@ -202,6 +215,42 @@ class MotionExtractionFilter:
             loc, rot, scale = keyframe[0:3]
             print( "Frame ", frameIdx, ". loc", loc, "; rot", rot, "; scale", scale )
             frameIdx += 1
+
+    #
+    # A utility method that removes fcurves pertaining to object's motion from the specified animation.
+    #
+    def deleteObjectMotionFCurves( self, animation ):
+
+        # delete curves we're about to replace
+        print( "Removing object motion fcurves:" )
+
+        curvesToRemove = []
+        for fc in animation.fcurves:
+            if fc.data_path == "location" or fc.data_path == "rotation_euler" or fc.data_path == "rotation_quaternion":
+                curvesToRemove.append( fc )
+        for curve in curvesToRemove:
+            print( "\tRemoving curve: ", curve.data_path )
+            animation.fcurves.remove( curve )
+
+    #
+    # A utility method that removes fcurves pertaining to the specified bone's motion from the specified animation.
+    #
+    def deleteBoneMotionFCurves( self, animation, bone ):
+
+        # delete curves we're about to replace
+        print( 'Removing bone "%s" motion fcurves:' % bone.name )
+
+        locDataPathName =   'pose.bones["%s"].location' % bone.name
+        eulerRotDataPathName = 'pose.bones["%s"].rotation_euler' % bone.name
+        quatRotDataPathName = 'pose.bones["%s"].rotation_quaternion' % bone.name
+
+        curvesToRemove = []
+        for fc in animation.fcurves:
+            if fc.data_path == locDataPathName or fc.data_path == eulerRotDataPathName or fc.data_path == quatRotDataPathName:
+                curvesToRemove.append( fc )
+        for curve in curvesToRemove:
+            print( "\tRemoving curve: ", curve.data_path )
+            animation.fcurves.remove( curve )
 
 ##################################################
 # Motion extraction operator

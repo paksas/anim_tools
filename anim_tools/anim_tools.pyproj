@@ -26,6 +26,12 @@
     <Compile Include="extract_motion.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="motion_operator.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="transform_utils.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="__init__.py" />
   </ItemGroup>
   <PropertyGroup>
