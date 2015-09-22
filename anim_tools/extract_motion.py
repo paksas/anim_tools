@@ -54,18 +54,20 @@ class MotionExtractionFilter:
             return False
         
         animation = self.m_armatureObj.animation_data.action
-        framesCount = int( animation.frame_range[1] )
+
+        armatureOp = motion_operator.ObjectMotionOp( self.m_armatureObj )
+        moverChannelOp = motion_operator.BoneMotionOp( self.m_armatureObj, self.m_armatureObj.pose.bones[self.m_oldMoverChannel] )
                 
         # Grab the motion of the mover channel
-        motion = self.collectMotionTransforms( animation, framesCount )
-        self.printMotion( motion, "Original motion" )
+        motion = moverChannelOp.sampleMotion( animation )
+        transform_utils.printMotion( motion, "Original motion" )
 
         # Filter out the motion we're interested in
         self.filterMotion( motion )
-        self.printMotion( motion, "Filtered motion" )
+        transform_utils.printMotion( motion, "Filtered motion" )
 
         # Keyframe the object with that motion
-        self.keyframeAnimationRoot( animation, motion )
+        armatureOp.setMotion( animation, motion, self.m_includeRotation )
 
         # Remove the extracted motion from the root bones
         for bone in self.m_armatureObj.data.bones:
@@ -83,7 +85,7 @@ class MotionExtractionFilter:
         filteredMotion = []
         for keyframe in motion:
 
-            loc, rot, scale = keyframe[0:3]
+            loc, rot = keyframe[0:2]
 
             for axisIdx in range(3):
                 if self.m_movementDirection[axisIdx] == False:
@@ -104,90 +106,9 @@ class MotionExtractionFilter:
             else:
                 rot = mathutils.Quaternion( ( 1.0, 0.0, 0.0, 0.0 ) )
 
-            filteredMotion.append( ( loc, rot, scale ) )
+            filteredMotion.append( ( loc, rot ) )
          
         motion = filteredMotion
-
-    #
-    # Keyframes the movement of armature root
-    #
-    def keyframeAnimationRoot( self, animation, motion ):
-
-        # store the original frame index to restore the scene to the previous state once we're done
-        originalFrameIdx = self.m_scene.frame_current
-
-        # delete curves we're about to replace
-        self.deleteObjectMotionFCurves( animation )
-
-        print( "Keyframing the armature object."  )
-        framesCount = len( motion )
-        # location
-        for axis_i in range(3):
-            
-            # if a curve already exists, delete it
-            #curve = animation.fcurves.find( "location" )
-            #if ( curve is not None ):
-            #    animation.fcurves.remove( curve )
-
-            curve = animation.fcurves.new(data_path="location", index=axis_i, action_group='Location' )
-            keyframePoints = curve.keyframe_points
-            keyframePoints.add( framesCount )
-
-            for frameIdx in range( framesCount ):
-                loc, rot, scale = motion[frameIdx]
-                keyframePoints[frameIdx].co = (frameIdx + 1.0, loc[axis_i])
-                keyframePoints[frameIdx].interpolation = 'LINEAR'
-
-        # rotation
-        if self.m_includeRotation:
-            for axis_i in range(4):
-
-                curve = animation.fcurves.new(data_path="rotation_quaternion", index=axis_i, action_group='Rotation')
-                keyframePoints = curve.keyframe_points
-                keyframePoints.add( framesCount )
-
-                for frameIdx in range( framesCount ):
-                    loc, rot, scale = motion[frameIdx]
-                    keyframePoints[frameIdx].co = (frameIdx + 1.0, rot[axis_i])
-                    keyframePoints[frameIdx].interpolation = 'LINEAR'
-
-        # restore the scene to its previous state
-        self.m_scene.frame_set( originalFrameIdx )
-
-    #
-    # Collects motion transforms from the old mover channel bone
-    #
-    def collectMotionTransforms( self, animation, framesCount ):
-
-        # store the original frame index to restore the scene to the previous state once we're done
-        originalFrameIdx = self.m_scene.frame_current
-
-        print( "Extracting motion from action: ", animation.name, "; frames [1..", framesCount, "]" )
-
-        # find the motion extraction track idx
-        motionTrackIdx = self.m_armatureObj.pose.bones.find( self.m_oldMoverChannel )
-        print( "Motion track idx = ", motionTrackIdx )
-
-        motionBone = self.m_armatureObj.pose.bones[self.m_oldMoverChannel]
-
-        # sample animation frames
-        motionTransforms = []
-        for frameIdx in range( framesCount ):
-
-            self.m_scene.frame_set( frameIdx )
-
-            motionBoneRefMtx = motionBone.bone.matrix_local
-            motionBoneMtx = motionBone.matrix
-            motionBoneLocMtx = motionBoneRefMtx.inverted() * motionBoneMtx
-            loc, rot, scale = motionBoneLocMtx.decompose()
-
-            motionTransforms.append( (loc, rot, scale) )
-
-        # restore the scene to its previous state
-        self.m_scene.frame_set( originalFrameIdx )
-
-        return motionTransforms
-
     
     #
     # Removes the specified motion from the bone
@@ -197,60 +118,8 @@ class MotionExtractionFilter:
         boneMotionOp = motion_operator.BoneMotionOp( self.m_armatureObj, bone )
         prevMotion = boneMotionOp.sampleMotion( animation )
         newMotion = transform_utils.calcRelativeMotion( motion, prevMotion )
-        boneMotionOp.setMotion( animation, newMotion )
+        boneMotionOp.setMotion( animation, newMotion, self.m_includeRotation )
 
-    # -------------------------------------------------------------------------
-    # Utility methods
-    # -------------------------------------------------------------------------
-
-    #
-    # Prints the motion definition
-    #
-    def printMotion( self, motion, header ):
-
-        print( header )
-        frameIdx = 1
-        for keyframe in motion:
-
-            loc, rot, scale = keyframe[0:3]
-            print( "Frame ", frameIdx, ". loc", loc, "; rot", rot, "; scale", scale )
-            frameIdx += 1
-
-    #
-    # A utility method that removes fcurves pertaining to object's motion from the specified animation.
-    #
-    def deleteObjectMotionFCurves( self, animation ):
-
-        # delete curves we're about to replace
-        print( "Removing object motion fcurves:" )
-
-        curvesToRemove = []
-        for fc in animation.fcurves:
-            if fc.data_path == "location" or fc.data_path == "rotation_euler" or fc.data_path == "rotation_quaternion":
-                curvesToRemove.append( fc )
-        for curve in curvesToRemove:
-            print( "\tRemoving curve: ", curve.data_path )
-            animation.fcurves.remove( curve )
-
-    #
-    # A utility method that removes fcurves pertaining to the specified bone's motion from the specified animation.
-    #
-    def deleteBoneMotionFCurves( self, animation, bone ):
-
-        # delete curves we're about to replace
-        print( 'Removing bone "%s" motion fcurves:' % bone.name )
-
-        locDataPathName =   'pose.bones["%s"].location' % bone.name
-        eulerRotDataPathName = 'pose.bones["%s"].rotation_euler' % bone.name
-        quatRotDataPathName = 'pose.bones["%s"].rotation_quaternion' % bone.name
-
-        curvesToRemove = []
-        for fc in animation.fcurves:
-            if fc.data_path == locDataPathName or fc.data_path == eulerRotDataPathName or fc.data_path == quatRotDataPathName:
-                curvesToRemove.append( fc )
-        for curve in curvesToRemove:
-            print( "\tRemoving curve: ", curve.data_path )
-            animation.fcurves.remove( curve )
 
 ##################################################
 # Motion extraction operator
