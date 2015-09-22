@@ -70,8 +70,8 @@ class MotionExtractionFilter:
         armatureOp.setMotion( animation, motion, self.m_includeRotation )
 
         # Remove the extracted motion from the root bones
-        for bone in self.m_armatureObj.data.bones:
-            if bone.parent is not None:
+        for bone in self.m_armatureObj.pose.bones:
+            if bone.parent is None:
                 self.removeMotionFromBone( bone, motion, animation )
 
 

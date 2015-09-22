@@ -28,14 +28,14 @@ class MotionOp:
         # delete curves we're about to replace
         self.deleteMotion( animation )
 
-        objectName, locDataPathName, quatRotDataPathName = self.getMotionPaths()
+        objectName, locActionGroup, rotActionGroup, locDataPathName, quatRotDataPathName = self.getMotionPaths()
         print( "Keyframing '%s'." % objectName )
        
         framesCount = len( motion )
         # location
         for axis_i in range(3):
             
-            curve = animation.fcurves.new(data_path=locDataPathName, index=axis_i, action_group='Location' )
+            curve = animation.fcurves.new(data_path=locDataPathName, index=axis_i, action_group=locActionGroup )
             keyframePoints = curve.keyframe_points
             keyframePoints.add( framesCount )
 
@@ -48,7 +48,7 @@ class MotionOp:
         if includeRotation:
             for axis_i in range(4):
 
-                curve = animation.fcurves.new(data_path=quatRotDataPathName, index=axis_i, action_group='Rotation')
+                curve = animation.fcurves.new(data_path=quatRotDataPathName, index=axis_i, action_group=rotActionGroup )
                 keyframePoints = curve.keyframe_points
                 keyframePoints.add( framesCount )
 
@@ -118,7 +118,7 @@ class ObjectMotionOp( MotionOp ):
 
     def getMotionPaths( self ):
         
-        return ( self.m_object.name, "location", "rotation_quaternion" )
+        return ( self.m_object.name, "Location", "Rotation", "location", "rotation_quaternion" )
 
 
 ##################################################
@@ -188,6 +188,8 @@ class BoneMotionOp( MotionOp ):
         
         return ( 
             '%s.%s' % ( self.m_armature.name, self.m_bone.name ),
+            self.m_bone.name,
+            self.m_bone.name,
             'pose.bones["%s"].location' % self.m_bone.name,
             'pose.bones["%s"].rotation_quaternion' % self.m_bone.name )
 
