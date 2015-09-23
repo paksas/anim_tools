@@ -63,7 +63,7 @@ class MotionExtractionFilter:
         transform_utils.printMotion( motion, "Original motion" )
 
         # Filter out the motion we're interested in
-        self.filterMotion( motion )
+        motion = self.filterMotion( motion )
         transform_utils.printMotion( motion, "Filtered motion" )
 
         # Keyframe the object with that motion
@@ -108,7 +108,7 @@ class MotionExtractionFilter:
 
             filteredMotion.append( ( loc, rot ) )
          
-        motion = filteredMotion
+        return filteredMotion
     
     #
     # Removes the specified motion from the bone

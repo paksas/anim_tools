@@ -3,6 +3,19 @@ import mathutils
 import math
 
 
+# ------------------------------------------------
+#
+# Blender bugs and how I work around them:
+# ------------------------------------------------
+#
+# >Bug 1 - The same quaternion rotates bones and objects in a different way.
+#          With objects, it works as expected, but with the bones, the Y and Z component
+#          seem to be swapped, which makes the bone rotate about the wrong axis.
+#          My solution is to swap the rotations I sample from and set on the bones
+#          in order to unify them with "Object rotation quaterions"
+#
+# ------------------------------------------------
+
 ##################################################
 # Motion operator interface
 ##################################################
@@ -28,39 +41,12 @@ class MotionOp:
         # delete curves we're about to replace
         self.deleteMotion( animation )
 
-        objectName, locActionGroup, rotActionGroup, locDataPathName, quatRotDataPathName = self.getMotionPaths()
-        print( "Keyframing '%s'." % objectName )
-       
-        framesCount = len( motion )
-        # location
-        for axis_i in range(3):
-            
-            curve = animation.fcurves.new(data_path=locDataPathName, index=axis_i, action_group=locActionGroup )
-            keyframePoints = curve.keyframe_points
-            keyframePoints.add( framesCount )
-
-            for frameIdx in range( framesCount ):
-                loc, rot = motion[frameIdx]
-                keyframePoints[frameIdx].co = (frameIdx + 1.0, loc[axis_i])
-                keyframePoints[frameIdx].interpolation = 'LINEAR'
-
-        # rotation
-        if includeRotation:
-            for axis_i in range(4):
-
-                curve = animation.fcurves.new(data_path=quatRotDataPathName, index=axis_i, action_group=rotActionGroup )
-                keyframePoints = curve.keyframe_points
-                keyframePoints.add( framesCount )
-
-                for frameIdx in range( framesCount ):
-                    loc, rot = motion[frameIdx]
-                    keyframePoints[frameIdx].co = (frameIdx + 1.0, rot[axis_i])
-                    keyframePoints[frameIdx].interpolation = 'LINEAR'
+        self.prvSetMotion( animation, motion, includeRotation )
 
     # 
     # Protected template method called by 'setMotion'
     #
-    def getMotionPaths( self ):
+    def prvSetMotion( self, animation, motion, includeRotation ):
         raise NotImplementedError("Subclass must implement abstract method")
 
 ##################################################
@@ -116,10 +102,36 @@ class ObjectMotionOp( MotionOp ):
             print( "\tcurve: ", curve.data_path )
             animation.fcurves.remove( curve )
 
-    def getMotionPaths( self ):
-        
-        return ( self.m_object.name, "Location", "Rotation", "location", "rotation_quaternion" )
+    def prvSetMotion( self, animation, motion, includeRotation ):
 
+        print( "Keyframing '%s'." % self.m_object.name )
+       
+        framesCount = len( motion )
+        # location
+        for axis_i in range(3):
+            
+            curve = animation.fcurves.new(data_path="location", index=axis_i, action_group="Location" )
+            keyframePoints = curve.keyframe_points
+            keyframePoints.add( framesCount )
+
+            for frameIdx in range( framesCount ):
+                loc, rot = motion[frameIdx]
+                keyframePoints[frameIdx].co = (frameIdx + 1.0, loc[axis_i])
+                keyframePoints[frameIdx].interpolation = 'LINEAR'
+
+        # rotation
+        if includeRotation:
+            for axis_i in range(3):
+
+                curve = animation.fcurves.new(data_path="rotation_euler", index=axis_i, action_group="Rotation" )
+                keyframePoints = curve.keyframe_points
+                keyframePoints.add( framesCount )
+
+                for frameIdx in range( framesCount ):
+                    loc, rot = motion[frameIdx]
+                    rotEuler = rot.to_euler( 'XYZ' )
+                    keyframePoints[frameIdx].co = (frameIdx + 1.0, rotEuler[axis_i])
+                    keyframePoints[frameIdx].interpolation = 'LINEAR'
 
 ##################################################
 # Motion operator for bones
@@ -161,6 +173,9 @@ class BoneMotionOp( MotionOp ):
             motionBoneLocMtx = motionBoneRefMtx.inverted() * motionBoneMtx
             loc, rot, scale = motionBoneLocMtx.decompose()
 
+            # @see "Bug 1"
+            self.swapYZInplace( rot )
+
             motionTransforms.append( ( loc, rot ) )
 
         # restore the scene to its previous state
@@ -184,13 +199,54 @@ class BoneMotionOp( MotionOp ):
             print( "\tRemoving curve: ", curve.data_path )
             animation.fcurves.remove( curve )
     
-    def getMotionPaths( self ):
-        
-        return ( 
-            '%s.%s' % ( self.m_armature.name, self.m_bone.name ),
-            self.m_bone.name,
-            self.m_bone.name,
-            'pose.bones["%s"].location' % self.m_bone.name,
-            'pose.bones["%s"].rotation_quaternion' % self.m_bone.name )
+
+    def prvSetMotion( self, animation, motion, includeRotation ):
+
+        print( "Keyframing '%s.%s'." % ( self.m_armature.name, self.m_bone.name ) )
+       
+        locDataPath = 'pose.bones["%s"].location' % self.m_bone.name
+        rotDataPath = 'pose.bones["%s"].rotation_quaternion' % self.m_bone.name
+
+        framesCount = len( motion )
+        # location
+        for axis_i in range(3):
+            
+            curve = animation.fcurves.new(data_path=locDataPath, index=axis_i, action_group=self.m_bone.name )
+            keyframePoints = curve.keyframe_points
+            keyframePoints.add( framesCount )
+
+            for frameIdx in range( framesCount ):
+                loc, rot = motion[frameIdx]
+                keyframePoints[frameIdx].co = (frameIdx + 1.0, loc[axis_i])
+                keyframePoints[frameIdx].interpolation = 'LINEAR'
+
+        # rotation
+        if includeRotation:
+            for axis_i in range(4):
+
+                curve = animation.fcurves.new(data_path=rotDataPath, index=axis_i, action_group=self.m_bone.name )
+                keyframePoints = curve.keyframe_points
+                keyframePoints.add( framesCount )
+
+                for frameIdx in range( framesCount ):
+                    loc, rot = motion[frameIdx]
+
+                    standardizedRot = self.swapYZ( rot )
+                    keyframePoints[frameIdx].co = (frameIdx + 1.0, standardizedRot[axis_i])
+                    keyframePoints[frameIdx].interpolation = 'LINEAR'
 
 
+    # -------------------------------------------------------------------------
+    # Helper methods
+    # -------------------------------------------------------------------------
+    
+    def swapYZInplace( self, quat ):
+        tmp = quat.y
+        quat.y = quat.z
+        quat.z = tmp
+
+    def swapYZ( self, quat ):
+        newQuat = quat.copy()
+        newQuat.y = quat.z
+        newQuat.z = quat.y
+        return newQuat
