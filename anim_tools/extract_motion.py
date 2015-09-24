@@ -56,26 +56,48 @@ class MotionExtractionFilter:
         animation = self.m_armatureObj.animation_data.action
 
         armatureOp = motion_operator.ObjectMotionOp( self.m_armatureObj )
-        moverChannelOp = motion_operator.BoneMotionOp( self.m_armatureObj, self.m_armatureObj.pose.bones[self.m_oldMoverChannel] )
-                
-        # Grab the motion of the mover channel
-        motion = moverChannelOp.sampleMotion( animation )
-        transform_utils.printMotion( motion, "Original motion" )
+
+        # collect motion of root bones
+        rootBonesOps, rootMotions = self.createRootBoneOperators( animation )
+        moverChannelOp = rootBonesOps[self.m_oldMoverChannel]
+        moverChannelMotion = rootMotions[self.m_oldMoverChannel]
+
+        # print the motion of the mover channel
+        moverChannelOp = rootBonesOps[self.m_oldMoverChannel]
+        moverChannelMotion = rootMotions[self.m_oldMoverChannel]
+        transform_utils.printMotion( moverChannelMotion, "Original motion" )
 
         # Filter out the motion we're interested in
-        motion = self.filterMotion( motion )
+        motion = self.filterMotion( moverChannelMotion )
         transform_utils.printMotion( motion, "Filtered motion" )
 
         # Keyframe the object with that motion
         armatureOp.setMotion( animation, motion, self.m_includeRotation )
 
         # Remove the extracted motion from the root bones
-        for bone in self.m_armatureObj.pose.bones:
-            if bone.parent is None:
-                self.removeMotionFromBone( bone, motion, animation )
+        self.removeMotionFromRootBones( rootBonesOps, rootMotions, motion, animation )
 
 
         return True
+
+    #
+    # Creates operators for all root bones
+    #
+    def createRootBoneOperators( self, animation ):
+
+        rootBonesOps = {}
+        rootMotions = {}
+        for bone in self.m_armatureObj.pose.bones:
+            if bone.parent is None:
+                
+                oper = motion_operator.BoneMotionOp( self.m_armatureObj, bone )
+                motion = oper.sampleMotion( animation )
+
+                rootBonesOps[bone.name] = oper
+                rootMotions[bone.name] = motion
+
+
+        return ( rootBonesOps, rootMotions )
 
     #
     # Filters the motion according to the specified parameters
@@ -85,26 +107,27 @@ class MotionExtractionFilter:
         filteredMotion = []
         for keyframe in motion:
 
-            loc, rot = keyframe[0:2]
+            loc = keyframe[0].copy()
+            rot = keyframe[1].copy()
 
             for axisIdx in range(3):
                 if self.m_movementDirection[axisIdx] == False:
                     loc[axisIdx] = 0.0
 
-            if self.m_includeRotation == True:
-                eulerRot = rot.to_euler('XYZ')
-                if ( self.m_upAxis == "X" ):
-                    eulerRot.y = 0.0
-                    eulerRot.z = 0.0
-                elif ( self.m_upAxis == "Y" ):
-                    eulerRot.x = 0.0
-                    eulerRot.z = 0.0
-                elif ( self.m_upAxis == "Z" ):
-                    eulerRot.x = 0.0
-                    eulerRot.y = 0.0
-                rot = eulerRot.to_quaternion()
-            else:
-                rot = mathutils.Quaternion( ( 1.0, 0.0, 0.0, 0.0 ) )
+            #if self.m_includeRotation == True:
+            #    eulerRot = rot.to_euler('XYZ')
+            #    if ( self.m_upAxis == "X" ):
+            #        eulerRot.y = 0.0
+            #        eulerRot.z = 0.0
+            #    elif ( self.m_upAxis == "Y" ):
+            #        eulerRot.x = 0.0
+            #        eulerRot.z = 0.0
+            #    elif ( self.m_upAxis ==6 "Z" ):
+            #        eulerRot.x = 0.0
+            #        eulerRot.y = 0.0
+            #    rot = eulerRot.to_quaternion()
+            #else:
+            #    rot = mathutils.Quaternion( ( 1.0, 0.0, 0.0, 0.0 ) )
 
             filteredMotion.append( ( loc, rot ) )
          
@@ -113,12 +136,17 @@ class MotionExtractionFilter:
     #
     # Removes the specified motion from the bone
     #
-    def removeMotionFromBone( self, bone, motion, animation ):
+    def removeMotionFromRootBones( self, rootBonesOps, rootMotions, motion, animation ):
         
-        boneMotionOp = motion_operator.BoneMotionOp( self.m_armatureObj, bone )
-        prevMotion = boneMotionOp.sampleMotion( animation )
-        newMotion = transform_utils.calcRelativeMotion( motion, prevMotion )
-        boneMotionOp.setMotion( animation, newMotion, self.m_includeRotation )
+        for boneName in rootBonesOps.keys():
+            
+            boneOp = rootBonesOps[boneName]
+            origBoneMotion = rootMotions[boneName]
+            newMotion = transform_utils.calcRelativeMotion( motion, origBoneMotion )
+
+            transform_utils.printMotion( newMotion, "Filtered motion for %s:" % boneName )
+
+            boneOp.setMotion( animation, newMotion, self.m_includeRotation )
 
 
 ##################################################

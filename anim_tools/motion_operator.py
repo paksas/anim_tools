@@ -168,13 +168,11 @@ class BoneMotionOp( MotionOp ):
 
             scene.frame_set( frameIdx )
 
-            motionBoneRefMtx = self.m_bone.bone.matrix_local
-            motionBoneMtx = self.m_bone.matrix
-            motionBoneLocMtx = motionBoneRefMtx.inverted() * motionBoneMtx
-            loc, rot, scale = motionBoneLocMtx.decompose()
+            boneRefPoseMtx = self.m_bone.bone.matrix_local
+            bonePoseMtx = self.m_bone.matrix
+            boneLocMtx = bonePoseMtx * boneRefPoseMtx.inverted()
 
-            # @see "Bug 1"
-            self.swapYZInplace( rot )
+            loc, rot, scale = boneLocMtx.decompose()
 
             motionTransforms.append( ( loc, rot ) )
 
@@ -207,6 +205,17 @@ class BoneMotionOp( MotionOp ):
         locDataPath = 'pose.bones["%s"].location' % self.m_bone.name
         rotDataPath = 'pose.bones["%s"].rotation_quaternion' % self.m_bone.name
 
+        # TODO: Care to explain why?
+        refPoseRot = self.m_bone.bone.matrix_local.inverted().to_quaternion()
+        boneTransforms = []
+        for transform in motion:
+
+            rotatedLoc = transform[0].copy()
+            rot = transform[1].copy()
+            rotatedLoc.rotate( refPoseRot )
+            boneTransforms.append( (rotatedLoc, rot) )
+
+
         framesCount = len( motion )
         # location
         for axis_i in range(3):
@@ -216,7 +225,7 @@ class BoneMotionOp( MotionOp ):
             keyframePoints.add( framesCount )
 
             for frameIdx in range( framesCount ):
-                loc, rot = motion[frameIdx]
+                loc = boneTransforms[frameIdx][0]
                 keyframePoints[frameIdx].co = (frameIdx + 1.0, loc[axis_i])
                 keyframePoints[frameIdx].interpolation = 'LINEAR'
 
@@ -229,24 +238,7 @@ class BoneMotionOp( MotionOp ):
                 keyframePoints.add( framesCount )
 
                 for frameIdx in range( framesCount ):
-                    loc, rot = motion[frameIdx]
+                    rot = boneTransforms[frameIdx][1]
 
-                    standardizedRot = self.swapYZ( rot )
-                    keyframePoints[frameIdx].co = (frameIdx + 1.0, standardizedRot[axis_i])
+                    keyframePoints[frameIdx].co = (frameIdx + 1.0, rot[axis_i])
                     keyframePoints[frameIdx].interpolation = 'LINEAR'
-
-
-    # -------------------------------------------------------------------------
-    # Helper methods
-    # -------------------------------------------------------------------------
-    
-    def swapYZInplace( self, quat ):
-        tmp = quat.y
-        quat.y = quat.z
-        quat.z = tmp
-
-    def swapYZ( self, quat ):
-        newQuat = quat.copy()
-        newQuat.y = quat.z
-        newQuat.z = quat.y
-        return newQuat
