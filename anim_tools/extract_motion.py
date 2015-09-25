@@ -16,7 +16,6 @@ class MotionExtractionFilter:
     m_oldMoverChannel = None
 
     m_movementDirection = ( True, True, False )
-    m_upAxis = "Z"
     m_includeRotation = False
 
     #
@@ -35,12 +34,11 @@ class MotionExtractionFilter:
         self.m_movementDirection = ( xAxis, yAxis, zAxis )
 
     #
-    # Defines whether the extracted motion should include root rotation about the up axis.
+    # Defines whether the extracted motion should include root rotation about the up axis ( which is assumed to be the Z axis ).
     # Any other rotation will be filtered out
     #
-    def setRotationFilter( self, includeRotation, upAxis ):
+    def setRotationFilter( self, includeRotation ):
         self.m_includeRotation = includeRotation
-        self.m_upAxis = upAxis
 
     #
     # Performs the motion extraction procedure
@@ -114,20 +112,11 @@ class MotionExtractionFilter:
                 if self.m_movementDirection[axisIdx] == False:
                     loc[axisIdx] = 0.0
 
-            #if self.m_includeRotation == True:
-            #    eulerRot = rot.to_euler('XYZ')
-            #    if ( self.m_upAxis == "X" ):
-            #        eulerRot.y = 0.0
-            #        eulerRot.z = 0.0
-            #    elif ( self.m_upAxis == "Y" ):
-            #        eulerRot.x = 0.0
-            #        eulerRot.z = 0.0
-            #    elif ( self.m_upAxis ==6 "Z" ):
-            #        eulerRot.x = 0.0
-            #        eulerRot.y = 0.0
-            #    rot = eulerRot.to_quaternion()
-            #else:
-            #    rot = mathutils.Quaternion( ( 1.0, 0.0, 0.0, 0.0 ) )
+            if self.m_includeRotation == True:            
+                yawAngle = transform_utils.calcYaw( keyframe )
+                rot = mathutils.Quaternion( ( 0.0, 0.0, 1.0 ), yawAngle )
+            else:
+                rot = mathutils.Quaternion( ( 1.0, 0.0, 0.0, 0.0 ) )
 
             filteredMotion.append( ( loc, rot ) )
          
@@ -214,16 +203,6 @@ class ExtractMotionOp(bpy.types.Operator):
         description="Include rotation about up axis?",
         default=False )
 
-    upAxis = EnumProperty(
-        name="Up axis",
-        description="World axis considered the up direction for the model",
-        items=[
-            ( "X", "X", "X" ),
-            ( "Y", "Y", "Y" ),
-            ( "Z", "Z", "Z" )],
-        default="Z"
-        )
-
     #
     # Operator implementation
     #
@@ -260,7 +239,7 @@ class ExtractMotionOp(bpy.types.Operator):
 
         filter = MotionExtractionFilter( context.scene, armatureObj, op.old_mover_channel )
         filter.setMovementDirectionFilter( op.xTranslation, op.yTranslation, op.zTranslation )
-        filter.setRotationFilter( op.includeRotation, op.upAxis )
+        filter.setRotationFilter( op.includeRotation )
 
         if filter.execute() == True:
             return {'FINISHED'}

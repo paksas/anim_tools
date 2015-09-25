@@ -149,6 +149,24 @@ class BoneMotionOp( MotionOp ):
         self.m_armature = armature
         self.m_bone = bone
 
+    #
+    # Factory method
+    #
+    @staticmethod
+    def createInstance( self, armatureObjName, boneName ):
+
+        armature = bpy.context.scene.objects[armatureObjName]
+        if self.armature is None:
+            op.report( {'ERROR'}, "BoneMotionOp: armature '%s' doesn't exist" % armatureObjName )
+            return None
+
+        bone = armature.pose.bones[boneName]
+        if bone is None:
+            op.report( {'ERROR'}, "BoneMotionOp: armature %s doesn't contain a bone '%s'" % ( armatureObjName, boneName ) )
+            return None
+
+        return BoneMotionOp( armature, bone )
+
     # -------------------------------------------------------------------------
     # MotionOp implementation
     # -------------------------------------------------------------------------

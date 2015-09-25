@@ -1,11 +1,17 @@
 ﻿import mathutils
 import math
 
+# 
+# General remarks regarding all functions presented here:
+#
+# Each motion is an array of transforms presented in form of tuples
+# (loc:Vector, rot:Quaternion)
+#
+
+# =============================================================================
 
 #
 # Calculates a relative movement of 'childMotion' with respect to 'rootMotion'.
-# Each motion is an array of transforms presented in form of tuples
-# (loc:Vector, rot:Quaternion)
 #
 # The method works only if both motions have the exact same number of keyframes.
 #
@@ -15,7 +21,7 @@ import math
 def calcRelativeMotion( rootMotion, childMotion ):
 
     resultingMotion = []
-    
+
     framesCount = len( rootMotion )
     if framesCount != len( childMotion ):
         op.report( {'ERROR'}, "transform_utils.calcRelativeMotion: The method works only with motions with the same number of keyframes" )
@@ -25,26 +31,39 @@ def calcRelativeMotion( rootMotion, childMotion ):
 
         rootLoc, rootRot = rootMotion[frameIdx]
         childLoc, childRot = childMotion[frameIdx]
-        invRootRot = rootRot.conjugated()
+        invRootRot = rootRot.conjugated().normalized()
         
         # translation
         translation = childLoc - rootLoc
         translation.rotate( invRootRot )
 
         # rotation
-        rotation = childRot * invRootRot
+        rotation = invRootRot * childRot
 
         resultingMotion.append( ( translation, rotation ) )
 
 
     return resultingMotion
 
+#
+# Calculates the rotation around the Z axis ( the yaw ) of the specified transform
+#
+def calcYaw( transform ):
+    worldFwdDir = mathutils.Vector( ( 1.0, 0.0, 0.0 ) )
+
+    rotatedVec = worldFwdDir.copy()
+    rotatedVec.rotate( transform[1] )
+    rotatedVec.z = 0.0
+    rotatedVec.normalize()
+
+    worldFwdDir2D = worldFwdDir.to_2d()
+    rotatedVec2D = rotatedVec.to_2d()
+    yawAngle = -worldFwdDir2D.angle_signed( rotatedVec2D, 0.0 )
+
+    return yawAngle
 
 #
 # Prints the motion definition
-#
-# Each motion is an array of transforms presented in form of tuples
-# (loc:Vector, rot:Quaternion)
 #
 def printMotion( motion, header ):
 
