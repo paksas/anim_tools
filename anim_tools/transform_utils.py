@@ -33,7 +33,7 @@ def calcRelativeMotion( rootMotion, childMotion ):
         childLoc, childRot = childMotion[frameIdx]
         invRootRot = rootRot.conjugated().normalized()
         
-        # translation
+        # translation 
         translation = childLoc - rootLoc
         translation.rotate( invRootRot )
 
